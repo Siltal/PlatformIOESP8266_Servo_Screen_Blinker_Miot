@@ -33,4 +33,5 @@ aux_source_directory(./src/ src)
 add_executable(Z_DUMMY_TARGET ${src})
 
 include_directories("./.pio/libdeps/nodemcuv2/U8g2/src")
+include_directories("./.pio/libdeps/nodemcuv2/WiFiManager/")
 include_directories("lib/blinker-library4/src")

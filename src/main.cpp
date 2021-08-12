@@ -6,6 +6,9 @@
 #include <Blinker.h>
 #include <U8g2lib.h>
 #include <Servo.h>
+#include <DNSServer.h>
+#include <ESP8266WebServer.h>
+#include <WiFiManager.h>
 
 
 //定义显示屏接口
@@ -15,14 +18,14 @@ U8G2_SSD1306_128X64_NONAME_F_SW_I2C u8g2(U8G2_R0, /* clock=*/ SCL, /* data=*/ SD
 
 //定义舵机接口
 Servo servo;
-#define SVO D4                 //GPIO 2
+#define SVO D0                 //GPIO 16
 #define DEFAULT_ON_ANGLE 199   //默认开启角度199
 #define DEFAULT_OFF_ANGLE 0    //默认关闭角度0
 #define DEFAULT_ROTATE_TIME 300//默认转动时间
 //Blinker网络
-char ssid[] = "Terminal";       //网络名称
-char pswd[] = "speedspeed";     //密码
-char auth[] = "xxxxxxxxx";   //Blinker设备识别码
+//char ssid[] = "Terminal";       //网络名称
+//char pswd[] = "speedspeed1";     //密码
+char auth[] = "";   //Blinker设备识别码
 /**
  * 灯状态
  */
@@ -32,12 +35,20 @@ int count = 0;                  //计数器记录的数字
 /**
  * 控制组件
  */
-BlinkerButton btn_open((char *) "btn_on_lamp");          //开灯
-BlinkerButton btn_close((char *) "btn_off_lamp");        //关灯
+BlinkerButton btn_open_lamp((char *) "btn_on_lamp");          //开实体灯
+BlinkerButton btn_close_lamp((char *) "btn_off_lamp");        //关实体灯
+BlinkerButton btn_open_led((char *) "btn_on_led");          //开LED灯
+BlinkerButton btn_close_led((char *) "btn_off_led");        //关LDE灯
 BlinkerButton btn_switch((char *) "btn_switch_lamp");    //切换开关
 BlinkerButton btn_plus((char *) "+1");                   //+1按钮，反馈给计数器
 BlinkerButton btn_reverse((char *) "btn_switch_reverse");//反转模式按钮
 BlinkerNumber counter((char *) "counter");               //计数器控件
+BlinkerButton btn_checker((char *) "checker");           //检查现在状态
+BlinkerText text_reporter((char *) "reporter");           //报告现在状态
+
+
+
+
 
 
 /**
@@ -94,25 +105,60 @@ void close_entity_lamp() {
     lamp_state = false;
     btn_switch.print(BLINKER_CMD_OFF);
 }
+/**
+ * 打开内置灯
+ */
+void open_buildin_led() {
+    digitalWrite(LED_BUILTIN, LOW);
+}
+
+/**
+ * 关闭内置灯
+ */
+void close_buildin_led() {
+    digitalWrite(LED_BUILTIN, HIGH);
+}
 
 /***********************************************callback_function***********************************************/
+
+/**
+ * 打开led回调
+ */
+void open_led_callback(const String &state){
+    open_buildin_led();
+    showText("open LED by btn_open_led");
+}
+
+/**
+ * 关闭内置回调
+ */
+void close_led_callback(const String &state){
+    close_buildin_led();
+    showText("close LED by btn_close_led");
+}
+/**
+ * 检测状态回调
+ */
+void checker_callback(const String &state) {
+    text_reporter.print(lamp_state ? "灯开着" : "灯关着");
+}
 
 /**
  * 开灯按钮回调函数
  * @param state on or off
  */
-void btn_open_callback(const String &state) {
+void open_lamp_callback(const String &state) {
     open_entity_lamp();
-    showText("btn_open by btn_close_lamp");
+    showText("lamp opend <~ btn_open_lamp");
 }
 
 /**
  * 关灯按钮回调函数
  * @param state on or off
  */
-void btn_close_callback(const String &state) {
+void close_lamp_callback(const String &state) {
     close_entity_lamp();
-    showText("btn_close by btn_close_lamp");
+    showText("lamp closed by btn_close_lamp");
 }
 
 /**
@@ -121,9 +167,9 @@ void btn_close_callback(const String &state) {
  */
 void btn_switch_callback(const String &state) {
     if (lamp_state) {
-        btn_close_callback(state);
+        close_lamp_callback(state);
     } else {
-        btn_open_callback(state);
+        open_lamp_callback(state);
     }
     BlinkerMIOT.powerState(lamp_state ? BLINKER_CMD_ON : BLINKER_CMD_OFF);
     BlinkerMIOT.print();
@@ -140,6 +186,7 @@ void plus_callback(const String &state) {
         counter.print(count);
     }
 }
+
 /**
  * 开关反转状态
  * @param state on or off
@@ -199,6 +246,7 @@ void miotPowerState(const String &state) {
  * @param data json数据
  */
 void dataRead(const String &data) {
+    text_reporter.print(lamp_state ? "_灯开着" : "_灯关着");
     BLINKER_LOG("Blinker readString: ", data);
     showText(data.c_str());
     uint32_t BlinkerTime = millis();
@@ -223,19 +271,30 @@ void loop() {
  */
 void setup() {
     Serial.begin(115200); //串口数据
+    pinMode(LED_BUILTIN,OUTPUT);
     u8g2.begin();               //显示屏初始化
+    WiFiManager wifiManager;
+    wifiManager.autoConnect();
+
+    showText((WiFi.SSID()+" "+WiFi.psk()).c_str());
+    delay(1000);
     BLINKER_DEBUG.stream(Serial);
 
-    Blinker.begin(auth, ssid, pswd);
+    Blinker.begin(auth, WiFi.SSID().c_str(), WiFi.psk().c_str());
     Blinker.attachData(dataRead);
     BlinkerMIOT.attachQuery(miotQuery);
     BlinkerMIOT.attachPowerState(miotPowerState);
 
-    btn_open.attach(btn_open_callback);
-    btn_close.attach(btn_close_callback);
+    btn_open_lamp.attach(open_lamp_callback);
+    btn_close_lamp.attach(close_lamp_callback);
+    btn_open_led.attach(open_led_callback);
+    btn_close_led.attach(close_led_callback);
+
+
     btn_switch.attach(btn_switch_callback);
     btn_plus.attach(plus_callback);
     btn_reverse.attach(reverse_callback);
+    btn_checker.attach(checker_callback);
     showText("setup done");
 
 }
