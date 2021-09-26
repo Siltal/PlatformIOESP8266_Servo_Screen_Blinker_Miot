@@ -1,3 +1,4 @@
+#define BLINKER_DEBUG_ALL
 #define BLINKER_WIFI
 #define BLINKER_MIOT_LIGHT
 
@@ -18,37 +19,35 @@ U8G2_SSD1306_128X64_NONAME_F_SW_I2C u8g2(U8G2_R0, /* clock=*/ SCL, /* data=*/ SD
 
 //定义舵机接口
 Servo servo;
-#define SVO D0                 //GPIO 16
-#define DEFAULT_ON_ANGLE 199   //默认开启角度199
-#define DEFAULT_OFF_ANGLE 0    //默认关闭角度0
-#define DEFAULT_ROTATE_TIME 300//默认转动时间
-//Blinker网络
-//char ssid[] = "Terminal";       //网络名称
-//char pswd[] = "speedspeed1";     //密码
-char auth[] = "";   //Blinker设备识别码
+#define SVO1 D0                 //GPIO 16
+#define SVO2 D5                 //GPIO 14
+//#define DEFAULT_ON_ANGLE 199   //默认开启角度199
+//#define DEFAULT_OFF_ANGLE 0    //默认关闭角度0
+
+char auth[] = "80e641be7d58";   //Blinker authKey
+//char bridge[]= "ffdd5e653703";
 /**
  * 灯状态
  */
 bool lamp_state;                //灯状态用于反转和反馈给小爱
+bool oScreen = true;
 bool reverse_state = false;     //反转模式，当控制开却关掉时使用
 int count = 0;                  //计数器记录的数字
 /**
  * 控制组件
  */
+BlinkerButton btn_switch((char *) "switch");    //切换开关
 BlinkerButton btn_open_lamp((char *) "btn_on_lamp");          //开实体灯
 BlinkerButton btn_close_lamp((char *) "btn_off_lamp");        //关实体灯
 BlinkerButton btn_open_led((char *) "btn_on_led");          //开LED灯
-BlinkerButton btn_close_led((char *) "btn_off_led");        //关LDE灯
-BlinkerButton btn_switch((char *) "btn_switch_lamp");    //切换开关
-BlinkerButton btn_plus((char *) "+1");                   //+1按钮，反馈给计数器
+BlinkerButton btn_close_led((char *) "btn_off_led");        //关LED灯
+BlinkerButton btn_close_screen((char *) "btn_close_screen");
+BlinkerButton btn_plus((char *) "+1");                   //+1的按钮，反馈给计数器
 BlinkerButton btn_reverse((char *) "btn_switch_reverse");//反转模式按钮
 BlinkerNumber counter((char *) "counter");               //计数器控件
 BlinkerButton btn_checker((char *) "checker");           //检查现在状态
+
 BlinkerText text_reporter((char *) "reporter");           //报告现在状态
-
-
-
-
 
 
 /**
@@ -56,11 +55,20 @@ BlinkerText text_reporter((char *) "reporter");           //报告现在状态
  * @param str 文本
  */
 void showText(const std::string &str) {
+    if (!oScreen) return;
     u8g2.clearBuffer();          // clear the internal memory
     u8g2.setFont(u8g2_font_ncenB08_tr); // choose a suitable font
     u8g2.drawStr(0, 10, str.c_str()); // 在固定坐标写入文本
     u8g2.sendBuffer();          // transfer internal memory to the display
 }
+
+/**
+ * 关闭显示屏
+ */
+void close_screen() {
+    u8g2.clearDisplay();
+}
+
 
 /**
  * 调整角度和显示角度
@@ -73,16 +81,26 @@ inline int adjust(int x) {
 }
 
 /**
- * 设置舵机角度，以及延迟时间
+ * 设置舵机1角度，以及延迟时间
  * @param pos 从0到199
  * @param _delay 延迟单位毫秒
  */
-void set_servo_angle(int pos, int _delay) {
-    servo.attach(SVO);
+void set_servo_A_angle(int pos, int _delay) {
+    servo.attach(SVO1);
     servo.write(adjust(pos));
     delay(_delay);
-    servo.write(adjust(95));
-    delay(200);
+    servo.detach();
+}
+
+/**
+ * 设置舵机2角度，以及延迟时间
+ * @param pos 从0到199
+ * @param _delay 延迟单位毫秒
+ */
+void set_servo_B_angle(int pos, int _delay) {
+    servo.attach(SVO2);
+    servo.write(adjust(pos));
+    delay(_delay);
     servo.detach();
 }
 
@@ -90,21 +108,24 @@ void set_servo_angle(int pos, int _delay) {
  * 打开实体灯
  */
 void open_entity_lamp() {
-    set_servo_angle(reverse_state ? DEFAULT_OFF_ANGLE : DEFAULT_ON_ANGLE, DEFAULT_ROTATE_TIME);
+    set_servo_A_angle(reverse_state ? 150 : 40, 400);
+    set_servo_A_angle(reverse_state ? 40 : 150, 400);
     lamp_state = true;
     btn_switch.print(BLINKER_CMD_ON);
+    text_reporter.print(lamp_state ? "灯开着" : "灯关着");
 }
 
 /**
  * 关闭实体灯
  */
 void close_entity_lamp() {
-    set_servo_angle(reverse_state ? DEFAULT_ON_ANGLE : DEFAULT_OFF_ANGLE, DEFAULT_ROTATE_TIME);
-    set_servo_angle(reverse_state ? DEFAULT_ON_ANGLE : DEFAULT_OFF_ANGLE, DEFAULT_ROTATE_TIME);
-    set_servo_angle(reverse_state ? DEFAULT_ON_ANGLE : DEFAULT_OFF_ANGLE, DEFAULT_ROTATE_TIME);
+    set_servo_B_angle(reverse_state ? 40 : 150, 400);
+    set_servo_B_angle(reverse_state ? 150 : 40, 400);
     lamp_state = false;
     btn_switch.print(BLINKER_CMD_OFF);
+    text_reporter.print(lamp_state ? "灯开着" : "灯关着");
 }
+
 /**
  * 打开内置灯
  */
@@ -124,18 +145,20 @@ void close_buildin_led() {
 /**
  * 打开led回调
  */
-void open_led_callback(const String &state){
+void open_led_callback(const String &state) {
     open_buildin_led();
     showText("open LED by btn_open_led");
 }
 
+
 /**
- * 关闭内置回调
+ * 关闭led 回调
  */
-void close_led_callback(const String &state){
+void close_led_callback(const String &state) {
     close_buildin_led();
     showText("close LED by btn_close_led");
 }
+
 /**
  * 检测状态回调
  */
@@ -149,7 +172,7 @@ void checker_callback(const String &state) {
  */
 void open_lamp_callback(const String &state) {
     open_entity_lamp();
-    showText("lamp opend <~ btn_open_lamp");
+    showText("lamp opend<-btn_open_lamp");
 }
 
 /**
@@ -158,7 +181,7 @@ void open_lamp_callback(const String &state) {
  */
 void close_lamp_callback(const String &state) {
     close_entity_lamp();
-    showText("lamp closed by btn_close_lamp");
+    showText("lamp closed<-btn_close_lamp");
 }
 
 /**
@@ -202,7 +225,7 @@ void reverse_callback(const String &state) {
 }
 
 /**
- * 小米物联网回调函数
+ * 小米物联网查询回调
  * @param queryCode 查询码
  */
 void miotQuery(int32_t queryCode) {
@@ -242,19 +265,32 @@ void miotPowerState(const String &state) {
 }
 
 /**
+ * 关闭显示屏回调
+ */
+void screen_callback(const String &state) {
+    oScreen = !oScreen;
+    if (!oScreen)
+        close_screen();
+}
+
+
+
+/**
  * 未捕获/绑定的数据
  * @param data json数据
  */
 void dataRead(const String &data) {
-    text_reporter.print(lamp_state ? "_灯开着" : "_灯关着");
-    BLINKER_LOG("Blinker readString: ", data);
-    showText(data.c_str());
     uint32_t BlinkerTime = millis();
     Blinker.print(BlinkerTime);
     Blinker.print("millis", BlinkerTime);
 
+    text_reporter.print(lamp_state ? "灯开着" : "灯关着");
+    BLINKER_LOG("Blinker readString: ", data);
+    showText(data.c_str());
+
     int angle = strtol(data.c_str(), nullptr, 10);
-    set_servo_angle(angle, 500);
+    set_servo_A_angle(angle, 500);
+    set_servo_B_angle(angle, 500);
 }
 
 /***********************************************base_work***********************************************/
@@ -271,16 +307,21 @@ void loop() {
  */
 void setup() {
     Serial.begin(115200); //串口数据
-    pinMode(LED_BUILTIN,OUTPUT);
+    pinMode(LED_BUILTIN, OUTPUT);
     u8g2.begin();               //显示屏初始化
+    showText("setup...");
+
+
     WiFiManager wifiManager;
     wifiManager.autoConnect();
 
-    showText((WiFi.SSID()+" "+WiFi.psk()).c_str());
+    showText((WiFi.SSID() + ":" + WiFi.psk()).c_str());
     delay(1000);
     BLINKER_DEBUG.stream(Serial);
+    BLINKER_DEBUG.debugAll();
 
     Blinker.begin(auth, WiFi.SSID().c_str(), WiFi.psk().c_str());
+
     Blinker.attachData(dataRead);
     BlinkerMIOT.attachQuery(miotQuery);
     BlinkerMIOT.attachPowerState(miotPowerState);
@@ -295,6 +336,7 @@ void setup() {
     btn_plus.attach(plus_callback);
     btn_reverse.attach(reverse_callback);
     btn_checker.attach(checker_callback);
+    btn_close_screen.attach(screen_callback);
     showText("setup done");
 
 }
